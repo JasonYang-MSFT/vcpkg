@@ -12,18 +12,11 @@
 #include "vcpkg_System.h"
 #include "Paragraphs.h"
 #include <regex>
+#include <set>
 
 using namespace vcpkg;
 
 bool vcpkg::g_do_dry_run = false;
-
-namespace
-{
-    std::fstream open_status_file(const vcpkg_paths& paths, std::ios_base::openmode mode = std::ios_base::app | std::ios_base::in | std::ios_base::out | std::ios_base::binary)
-    {
-        return std::fstream(paths.vcpkg_dir_status_file, mode);
-    }
-}
 
 static StatusParagraphs load_current_database(const fs::path& vcpkg_dir_status_file, const fs::path& vcpkg_dir_status_file_old)
 {
@@ -191,6 +184,25 @@ static void install_and_write_listfile(const vcpkg_paths& paths, const BinaryPar
 
 void vcpkg::install_package(const vcpkg_paths& paths, const BinaryParagraph& binary_paragraph, StatusParagraphs& status_db)
 {
+    const fs::path package_dir = paths.package_dir(binary_paragraph.spec);
+    const std::vector<fs::path> package_files = Files::recursive_find_all_files_in_dir(package_dir);
+
+    const fs::path installed_dir = paths.installed / binary_paragraph.spec.target_triplet().canonical_name();
+    const std::vector<fs::path> installed_files = Files::recursive_find_all_files_in_dir(installed_dir);
+
+    const std::set<fs::path> package_files_set(package_files.cbegin(), package_files.cend());
+    const std::set<fs::path> installed_files_set(installed_files.cbegin(), installed_files.cend());
+
+    std::vector<fs::path> intersection;
+    std::set_intersection(package_files_set.cbegin(), package_files_set.cend(), installed_files_set.cbegin(), installed_files_set.cend(), intersection.begin());
+
+    if (!intersection.empty())
+    {
+        System::println(System::color::error, "The following files are already installed and are in conflict with %s:", binary_paragraph.spec);
+        Files::print_paths(intersection);
+        exit(EXIT_FAILURE);
+    }
+
     StatusParagraph spgh;
     spgh.package = binary_paragraph;
     spgh.want = want_t::install;
